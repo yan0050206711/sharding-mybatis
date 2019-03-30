@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:tx="http://www.springframework.org/schema/tx"
+       xmlns:util="http://www.springframework.org/schema/util"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans 
+    		http://www.springframework.org/schema/beans/spring-beans.xsd
+       		http://www.springframework.org/schema/context 
+     		http://www.springframework.org/schema/context/spring-context.xsd
+     		http://www.springframework.org/schema/tx
+            http://www.springframework.org/schema/tx/spring-tx-3.0.xsd
+            http://www.springframework.org/schema/util
+       		http://www.springframework.org/schema/util/spring-util-3.1.xsd"
+	default-autowire="byName">
+
+	<context:annotation-config />
+	<context:component-scan base-package="com.tstd2.sharding.test" />
+
+    <bean id="propertyConfigurer"
+          class="org.springframework.beans.factory.config.PropertyPlaceholderConfigurer">
+        <property name="systemPropertiesModeName" value="SYSTEM_PROPERTIES_MODE_OVERRIDE" />
+        <property name="ignoreResourceNotFound" value="true" />
+        <property name="locations">
+            <list>
+                <value>classpath:conf/*.properties</value>
+            </list>
+        </property>
+    </bean>
+
+	<!-- 分库分表的数据源。 -->
+	<bean id="targetShardingDataSource" class="com.tstd2.sharding.spring.ShardingDataSourceRouter">
+        <!-- 目标数据源 -->
+        <property name="targetDataSources">
+            <map>
+                <entry key="dsg-0" value-ref="db00" />
+                <entry key="dsg-1" value-ref="db01" />
+            </map>
+        </property>
+	</bean>
+
+    <bean id="db00" parent="abstractDataSource">
+        <property name="url" value="jdbc:mysql://127.0.0.1:3306/user_0?useUnicode=true&amp;characterEncoding=UTF-8&amp;zeroDateTimeBehavior=convertToNull" />
+        <property name="username" value="root" />
+        <property name="password" value="@Liudongliu963" />
+    </bean>
+
+    <bean id="db01" parent="abstractDataSource">
+        <property name="url" value="jdbc:mysql://127.0.0.1:3306/user_1?useUnicode=true&amp;characterEncoding=UTF-8&amp;zeroDateTimeBehavior=convertToNull" />
+        <property name="username" value="root" />
+        <property name="password" value="@Liudongliu963" />
+    </bean>
+
+    <!-- 虚拟数据源配置 -->
+    <bean id="vds" class="com.tstd2.sharding.VirtualDataSource">
+        <!-- 分表元信息 -->
+        <property name="shardingTableInfos">
+            <list>
+                <bean class="com.tstd2.sharding.ShardingTableInfo">
+                    <!-- 分表前缀 -->
+                    <property name="tablePrefix" value="t_user_" />
+                    <!-- 分表总数 -->
+                    <property name="shardingTableCount" value="4" />
+                </bean>
+            </list>
+        </property>
+        <!-- 数据源组信息 -->
+        <property name="shardingDBCount" value="2" />
+    </bean>
+
+
+    <!-- Druid Config -->
+    <bean id="abstractDataSource" class="com.alibaba.druid.pool.DruidDataSource" abstract="true" init-method="init" destroy-method="close">
+        <!-- 初始化连接个数 -->
+        <property name="initialSize" value="${jdbc.datasource.initialSize}" />
+        <!-- 最大连接个数 -->
+        <property name="maxActive" value="${jdbc.datasource.maxActive}" />
+        <!-- 最小连接个数 -->
+        <property name="minIdle" value="${jdbc.datasource.minIdle}" />
+        <!-- 获取连接时最大等待时间，单位毫秒 -->
+        <property name="maxWait" value="${jdbc.datasource.maxWait}" />
+        <!-- 是否缓存preparedStatement，Mysql下建议关闭-->
+        <property name="poolPreparedStatements" value="${jdbc.datasource.poolPreparedStatements}" />
+        <property name="maxOpenPreparedStatements" value="${jdbc.datasource.maxOpenPreparedStatements}" />
+        <!-- 检测是否有效的sql，如果validationQuery为null，testOnBorrow、testOnReturn、testWhileIdle都不会其作用 -->
+        <property name="validationQuery" value="SELECT 'x'" />
+        <!-- 申请连接时执行validationQuery检测连接是否有效，做了这个配置会降低性能 -->
+        <property name="testOnBorrow" value="${jdbc.datasource.testOnBorrow}" />
+        <!-- 归还连接时执行validationQuery检测连接是否有效，做了这个配置会降低性能 -->
+        <property name="testOnReturn" value="${jdbc.datasource.testOnReturn}" />
+        <!-- 建议配置为true，不影响性能，并且保证安全性。申请连接的时候检测，如果空闲时间大于timeBetweenEvictionRunsMillis，
+               执行validationQuery检测连接是否有效。 -->
+        <property name="testWhileIdle" value="${jdbc.datasource.testWhileIdle}" />
+        <!-- 单位：毫秒，有两个含义：
+           1) Destroy线程会检测连接的间隔时间，如果连接空闲时间大于等于minEvictableIdleTimeMillis则关闭物理连接
+           2) testWhileIdle的判断依据，详细看testWhileIdle属性的说明 -->
+        <property name="timeBetweenEvictionRunsMillis" value="${jdbc.datasource.timeBetweenEvictionRunsMillis}" />
+        <!-- 连接保持空闲而不被驱逐的最长时间，单位：毫秒 -->
+        <property name="minEvictableIdleTimeMillis" value="${jdbc.datasource.minEvictableIdleTimeMillis}" />
+        <!-- 开启Druid的监控统计功能 -->
+        <property name="filters" value="${jdbc.datasource.filters}" />
+    </bean>
+
+	<!-- 集成Mybatis -->
+	<bean id="sessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
+		<property name="dataSource" ref="targetShardingDataSource" />
+		<property name="configLocation" value="classpath:sqlmap-config.xml" />
+		<property name="mapperLocations" value="classpath:mybatis/mapper/*.xml" /> <!-- **表示任意多级目录 -->
+		<property name="plugins">
+			<array>
+                <!-- 分库分表插件 -->
+				<bean id="shardingInterceptor" class="com.tstd2.sharding.mybatis.ShardingInterceptor" />
+			</array>
+		</property>
+	</bean>
+
+	<!-- 扫描 mappers 自动为DAO层生成bean -->
+	<bean class="org.mybatis.spring.mapper.MapperScannerConfigurer">
+		<property name="sqlSessionFactoryBeanName" value="sessionFactory"></property>
+		<property name="basePackage" value="com.tstd2.sharding.test.dao" />
+	</bean>
+
+</beans>
