@@ -52,4 +52,12 @@ public class TableShardingBean {
 		this.shardingDBCount = shardingDBCount;
 	}
 
+    @Override
+    public String toString() {
+        return "TableShardingBean{" +
+                "tablePrefix='" + tablePrefix + '\'' +
+                ", shardingTableCount=" + shardingTableCount +
+                ", shardingDBCount=" + shardingDBCount +
+                '}';
+    }
 }

@@ -33,6 +33,6 @@ public @interface ShardingTable {
 	/**
 	 * 分表的表前缀，sql中一般直接将这个前缀作为逻辑表名。
 	 */
-	String tablePrefix();
+	String[] tablePrefix();
 	
 }

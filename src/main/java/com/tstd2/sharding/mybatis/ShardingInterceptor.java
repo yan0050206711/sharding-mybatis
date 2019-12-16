@@ -35,19 +35,22 @@ import org.apache.ibatis.session.ResultHandler;
 import org.apache.ibatis.session.RowBounds;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.ReflectionUtils;
 
 import java.lang.reflect.Array;
 import java.lang.reflect.Method;
 import java.sql.Connection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 
 /**
  * 针对Mybatis的分库分表插件。
  */
 @Intercepts({
-        @Signature(type = StatementHandler.class, method = "prepare", args = {Connection.class,Integer.class}),
+        @Signature(type = StatementHandler.class, method = "prepare", args = {Connection.class, Integer.class}),
         @Signature(type = Executor.class, method = "update", args = {MappedStatement.class, Object.class}),
         @Signature(type = Executor.class, method = "query", args = {MappedStatement.class, Object.class, RowBounds.class, ResultHandler.class, CacheKey.class, BoundSql.class}),
         @Signature(type = Executor.class, method = "query", args = {MappedStatement.class, Object.class, RowBounds.class, ResultHandler.class}),})
@@ -74,13 +77,13 @@ public class ShardingInterceptor implements Interceptor {
     private static final ObjectWrapperFactory OBJECT_WRAPPER_FACTORY = new DefaultObjectWrapperFactory();
     private static final ReflectorFactory REFLECTOR_FACTORY = new DefaultReflectorFactory();
 
-    /*
-     * 下面两个属性用于在Executor代理和StatementHandler代理之间传递分表信息。
+    /**
+     * 下面这个属性用于在Executor代理和StatementHandler代理之间传递分表信息。
      * 由于在处理这两个代理的时候，都会重新从Sqlsource中来构建BoundSql，也无法修改Sqlsource这份源数据，所以这里通过ThreadLocal来做这个传递。
      */
-    private static final ThreadLocal<String> LOCAL_TABLEPREFIX = new ThreadLocal<String>();
-    private static final ThreadLocal<String> LOCAL_REALTABLENAME = new ThreadLocal<String>();
+    private static final ThreadLocal<Map<String, String>> LOCAL_REALTABLE_MAPPING = new ThreadLocal<>();
 
+    @Override
     public Object intercept(Invocation invocation) throws Throwable {
         Object targetObject = invocation.getTarget();
         /**
@@ -98,22 +101,22 @@ public class ShardingInterceptor implements Interceptor {
             Class<?> classObject = Class.forName(className);
             /*
              * 通过方法名称查找方法实例。
-			 * 注意这里有一个问题，没办法处理重载方法。
-			 */
+             * 注意这里有一个问题，没办法处理重载方法。
+             */
             Class<?>[] paramTypes = null;//无法获取实际方法参数列表，这里传null。
             Method method = ReflectionUtils.findMethod(classObject, methodName, paramTypes);
             //根据方法上的@Sharding注解进行逻辑处理。
             Sharding shardingMeta = method.getAnnotation(Sharding.class);
             if (shardingMeta != null) {
-                String tablePrefix = shardingMeta.tablePrefix();
-                if (tablePrefix == null || tablePrefix.trim().length() == 0) {
+                String[] tablePrefixs = shardingMeta.tablePrefix();
+                if (tablePrefixs == null || tablePrefixs.length == 0) {
                     //再尝试获取类上面的ShardingTable注解。
                     ShardingTable shardingTableMeta = classObject.getAnnotation(ShardingTable.class);
                     if (shardingTableMeta != null) {
-                        tablePrefix = shardingTableMeta.tablePrefix();
+                        tablePrefixs = shardingTableMeta.tablePrefix();
                     }
                 }
-                if (tablePrefix == null || tablePrefix.trim().length() == 0) {
+                if (tablePrefixs == null || tablePrefixs.length == 0) {
                     LOGGER.error("必须在方法[{}]上的@Sharding中或者类[{}]上的@ShardingTable中指定tablePrefix!", method, classObject);
                     throw new IllegalArgumentException("tablePrefix can't be null");
                 }
@@ -122,33 +125,43 @@ public class ShardingInterceptor implements Interceptor {
                     LOGGER.error("方法[{}]上的@Sharding必须指定property!", method);
                     throw new IllegalArgumentException("property can't be null");
                 }
-                //获取分表元信息。
-                TableShardingBean shardingBean = TableShardingHolder.getTableShardingInfos().get(tablePrefix);
-                if (shardingBean == null) {
-                    LOGGER.error("没有表[{}]对应的分表信息!", tablePrefix);
-                    throw new IllegalArgumentException("shardinginfo can't be null");
+
+                // 循环获取每一个真实表名
+                Map<String, String> realTableMap = new HashMap<>(tablePrefixs.length);
+                for (int i = 0; i < tablePrefixs.length; i++) {
+                    //获取分表元信息。
+                    TableShardingBean shardingBean = TableShardingHolder.getTableShardingInfos().get(tablePrefixs[i]);
+                    if (shardingBean == null) {
+                        LOGGER.error("没有表[{}]对应的分表信息!", tablePrefixs[i]);
+                        throw new IllegalArgumentException("shardinginfo can't be null");
+                    }
+                    LOGGER.debug("针对于[{}]的分表信息为[{}]！", tablePrefixs[i], shardingBean);
+                    BoundSql boundSql = mappedStatement.getBoundSql(parameterObject);
+                    //1.通过Sharding值来计算分表号和分库号。
+                    //1.1计算Sharding值。
+                    Object shardingValue = computeShardingValue(property, boundSql);
+                    //1.2计算分表号和分库号。
+                    //计算分表号和分库号。
+                    int shardingTableCount = shardingBean.getShardingTableCount();
+                    int shardingDBCount = shardingBean.getShardingDBCount();
+                    ShardingStrategy.TablePair pair = DEFAULT_SHARDINGSTRATEGY.sharding(shardingValue, shardingTableCount, shardingDBCount);
+                    LOGGER.debug("根据分库分表值[{}]算出来的库表号信息为:[{}]", shardingValue, pair);
+
+                    //2.1生成实际物理表名。
+                    String realTableName = tableNameGenerator.generate(tablePrefixs[i], pair.getTableNo(), shardingTableCount);
+                    //2.2将表前缀和实际物理表名存到线程上下文。
+                    realTableMap.put(tablePrefixs[i], realTableName);
+
+                    // 业务要保证一个sql多个表需要在一个数据源中，所以此处只使用第一个表的数据源即可
+                    if (i == 0) {
+                        //3.通过分库号指定数据源
+                        String dsGroupKey = dataSourceNameGenerator.generate(pair.getDataSourceNo(), shardingDBCount);
+                        DataSourceLocalKeys.CURRENT_DS_GROUP_KEY.set(dsGroupKey);
+                    }
+
                 }
-                LOGGER.debug("针对于[{}]的分表信息为[{}]！", tablePrefix, shardingBean);
-                BoundSql boundSql = mappedStatement.getBoundSql(parameterObject);
-                //1.通过Sharding值来计算分表号和分库号。
-                //1.1计算Sharding值。
-                Object shardingValue = computeShardingValue(property, boundSql);
-                //1.2计算分表号和分库号。
-                //计算分表号和分库号。
-                int shardingTableCount = shardingBean.getShardingTableCount();
-                int shardingDBCount = shardingBean.getShardingDBCount();
-                ShardingStrategy.TablePair pair = DEFAULT_SHARDINGSTRATEGY.sharding(shardingValue, shardingTableCount, shardingDBCount);
-                LOGGER.debug("根据分库分表值[{}]算出来的库表号信息为:[{}]", shardingValue, pair);
-
-                //2.1生成实际物理表名。
-                String realTableName = tableNameGenerator.generate(tablePrefix, pair.getTableNo(), shardingTableCount);
-                //2.2将表前缀和实际物理表名存到线程上下文。
-                LOCAL_TABLEPREFIX.set(tablePrefix);
-                LOCAL_REALTABLENAME.set(realTableName);
-
-                //3.通过分库号指定数据源
-                String dsGroupKey = dataSourceNameGenerator.generate(pair.getDataSourceNo(), shardingDBCount);
-                DataSourceLocalKeys.CURRENT_DS_GROUP_KEY.set(dsGroupKey);
+                // 最后将表明映射设置到上下文变量中
+                LOCAL_REALTABLE_MAPPING.set(realTableMap);
 
                 return invocation.proceed();
             } else {
@@ -181,16 +194,17 @@ public class ShardingInterceptor implements Interceptor {
             BoundSql boundSql = (BoundSql) metaStatementHandler.getValue("delegate.boundSql");
             String originalSql = boundSql.getSql();
             LOGGER.debug("originalSql = [{}]", originalSql);
-            String tablePrefix = LOCAL_TABLEPREFIX.get();
-            String realTableName = LOCAL_REALTABLENAME.get();
-            LOCAL_TABLEPREFIX.remove();
-            LOCAL_REALTABLENAME.remove();
-            if (tablePrefix == null || realTableName == null) {
+            Map<String, String> realTableMap = LOCAL_REALTABLE_MAPPING.get();
+            LOCAL_REALTABLE_MAPPING.remove();
+            if (CollectionUtils.isEmpty(realTableMap)) {
                 LOGGER.debug("no tablePrefix or realTableName in threadlocal!");
                 return invocation.proceed();
             } else {
                 // 替换sql
-                String newSql = originalSql.replaceAll(tablePrefix, realTableName);
+                String newSql = originalSql;
+                for (Map.Entry<String, String> entry : realTableMap.entrySet()) {
+                    newSql = newSql.replaceAll(entry.getKey(), entry.getValue());
+                }
                 LOGGER.debug("newSql = [{}]", newSql);
                 metaStatementHandler.setValue("delegate.boundSql.sql", newSql);
                 return invocation.proceed();

@@ -20,7 +20,7 @@ public @interface Sharding {
 	/**
 	 * 分表的表前缀，sql中一般直接将这个前缀作为逻辑表名。
 	 */
-	String tablePrefix() default "";
+	String[] tablePrefix() default "";
 	
 	/**
 	 * 分表的属性名称。
