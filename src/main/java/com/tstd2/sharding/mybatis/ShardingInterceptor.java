@@ -126,6 +126,12 @@ public class ShardingInterceptor implements Interceptor {
                     throw new IllegalArgumentException("property can't be null");
                 }
 
+                // 获取保存Sql语句的对象
+                BoundSql boundSql = mappedStatement.getBoundSql(parameterObject);
+                //1.通过Sharding值来计算分表号和分库号。
+                //1.1计算Sharding值。
+                Object shardingValue = computeShardingValue(property, boundSql);
+
                 // 循环获取每一个真实表名
                 Map<String, String> realTableMap = new HashMap<>(tablePrefixs.length);
                 for (int i = 0; i < tablePrefixs.length; i++) {
@@ -136,10 +142,6 @@ public class ShardingInterceptor implements Interceptor {
                         throw new IllegalArgumentException("shardinginfo can't be null");
                     }
                     LOGGER.debug("针对于[{}]的分表信息为[{}]！", tablePrefixs[i], shardingBean);
-                    BoundSql boundSql = mappedStatement.getBoundSql(parameterObject);
-                    //1.通过Sharding值来计算分表号和分库号。
-                    //1.1计算Sharding值。
-                    Object shardingValue = computeShardingValue(property, boundSql);
                     //1.2计算分表号和分库号。
                     //计算分表号和分库号。
                     int shardingTableCount = shardingBean.getShardingTableCount();
