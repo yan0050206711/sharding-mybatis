@@ -14,7 +14,7 @@ import java.lang.annotation.Target;
  * <p>这个注解用在Dao的方法上，注解中可以指定读写标志和手工数据源组key。
  */
 @Retention(RetentionPolicy.RUNTIME)
-@Target({ElementType.METHOD})
+@Target({ElementType.TYPE, ElementType.METHOD})
 public @interface NonSharding {
 
 }

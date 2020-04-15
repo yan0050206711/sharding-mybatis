@@ -1,17 +1,18 @@
 package com.tstd2.sharding.mybatis;
 
 import com.tstd2.sharding.DataSourceLocalKeys;
-import com.tstd2.sharding.namegenerator.DefaultDataSourceNameGenerator;
-import com.tstd2.sharding.strategy.DefaultShardingStrategy;
-import com.tstd2.sharding.namegenerator.DefaultTableNameGenerator;
-import com.tstd2.sharding.namegenerator.DataSourceNameGenerator;
-import com.tstd2.sharding.strategy.ShardingStrategy;
-import com.tstd2.sharding.namegenerator.TableNameGenerator;
+import com.tstd2.sharding.ShardingContext;
 import com.tstd2.sharding.TableShardingBean;
 import com.tstd2.sharding.TableShardingHolder;
 import com.tstd2.sharding.annotation.NonSharding;
 import com.tstd2.sharding.annotation.Sharding;
 import com.tstd2.sharding.annotation.ShardingTable;
+import com.tstd2.sharding.namegenerator.DataSourceNameGenerator;
+import com.tstd2.sharding.namegenerator.DefaultDataSourceNameGenerator;
+import com.tstd2.sharding.namegenerator.DefaultTableNameGenerator;
+import com.tstd2.sharding.namegenerator.TableNameGenerator;
+import com.tstd2.sharding.strategy.DefaultShardingStrategy;
+import com.tstd2.sharding.strategy.ShardingStrategy;
 import org.apache.ibatis.cache.CacheKey;
 import org.apache.ibatis.executor.Executor;
 import org.apache.ibatis.executor.statement.StatementHandler;
@@ -37,6 +38,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.ReflectionUtils;
+import org.springframework.util.StringUtils;
 
 import java.lang.reflect.Array;
 import java.lang.reflect.Method;
@@ -99,32 +101,14 @@ public class ShardingInterceptor implements Interceptor {
             String className = methodInfo.substring(0, splitIndex);
             String methodName = methodInfo.substring(splitIndex + 1);
             Class<?> classObject = Class.forName(className);
-            /*
-             * 通过方法名称查找方法实例。
-             * 注意这里有一个问题，没办法处理重载方法。
-             */
-            Class<?>[] paramTypes = null;//无法获取实际方法参数列表，这里传null。
-            Method method = ReflectionUtils.findMethod(classObject, methodName, paramTypes);
-            //根据方法上的@Sharding注解进行逻辑处理。
-            Sharding shardingMeta = method.getAnnotation(Sharding.class);
-            if (shardingMeta != null) {
-                String[] tablePrefixs = shardingMeta.tablePrefix();
-                if (tablePrefixs == null || tablePrefixs.length == 0) {
-                    //再尝试获取类上面的ShardingTable注解。
-                    ShardingTable shardingTableMeta = classObject.getAnnotation(ShardingTable.class);
-                    if (shardingTableMeta != null) {
-                        tablePrefixs = shardingTableMeta.tablePrefix();
-                    }
-                }
-                if (tablePrefixs == null || tablePrefixs.length == 0) {
-                    LOGGER.error("必须在方法[{}]上的@Sharding中或者类[{}]上的@ShardingTable中指定tablePrefix!", method, classObject);
-                    throw new IllegalArgumentException("tablePrefix can't be null");
-                }
-                String property = shardingMeta.property();
-                if (property == null || property.trim().length() == 0) {
-                    LOGGER.error("方法[{}]上的@Sharding必须指定property!", method);
-                    throw new IllegalArgumentException("property can't be null");
-                }
+
+            ShardingContext shardingContext = this.getShardingContext(classObject, methodName);
+
+            if (shardingContext != null) {
+
+                String[] tablePrefixs = shardingContext.getTablePrefixs();
+                String property = shardingContext.getProperty();
+                ShardingStrategy shardingStrategy = shardingContext.getShardingStrategy();
 
                 // 获取保存Sql语句的对象
                 BoundSql boundSql = mappedStatement.getBoundSql(parameterObject);
@@ -146,7 +130,7 @@ public class ShardingInterceptor implements Interceptor {
                     //计算分表号和分库号。
                     int shardingTableCount = shardingBean.getShardingTableCount();
                     int shardingDBCount = shardingBean.getShardingDBCount();
-                    ShardingStrategy.TablePair pair = DEFAULT_SHARDINGSTRATEGY.sharding(shardingValue, shardingTableCount, shardingDBCount);
+                    ShardingStrategy.TablePair pair = shardingStrategy.sharding(shardingValue, shardingTableCount, shardingDBCount);
                     LOGGER.debug("根据分库分表值[{}]算出来的库表号信息为:[{}]", shardingValue, pair);
 
                     //2.1生成实际物理表名。
@@ -167,8 +151,7 @@ public class ShardingInterceptor implements Interceptor {
 
                 return invocation.proceed();
             } else {
-                //根据方法上的@NonSharding注解进行逻辑处理。
-                NonSharding nonShardingMeta = method.getAnnotation(NonSharding.class);
+                //不分库分表洛基
 
             }
         }
@@ -213,6 +196,70 @@ public class ShardingInterceptor implements Interceptor {
             }
         }
         return invocation.proceed();
+    }
+
+    private ShardingContext getShardingContext(Class<?> classObject, String methodName) throws Exception {
+        /*
+         * 通过方法名称查找方法实例。
+         * 注意这里有一个问题，没办法处理重载方法。
+         */
+        Class<?>[] paramTypes = null;//无法获取实际方法参数列表，这里传null。
+        Method method = ReflectionUtils.findMethod(classObject, methodName, paramTypes);
+
+        //根据方法上的@NonSharding注解进行逻辑处理。
+        NonSharding nonShardingMeta = method.getAnnotation(NonSharding.class);
+        if (nonShardingMeta != null) {
+            return null;
+        }
+
+        //根据类上的@NonSharding注解进行逻辑处理。
+        NonSharding nonShardingTableMeta = classObject.getAnnotation(NonSharding.class);
+        if (nonShardingTableMeta != null) {
+            return null;
+        }
+
+        String[] tablePrefixs = null;
+        String property = null;
+        Class<? extends ShardingStrategy> strategyClass = null;
+
+        //根据方法上的@Sharding注解进行逻辑处理。
+        Sharding shardingMeta = method.getAnnotation(Sharding.class);
+        if (shardingMeta != null) {
+            tablePrefixs = shardingMeta.tablePrefix();
+            property = shardingMeta.property();
+            strategyClass = shardingMeta.strategy();
+        }
+
+        //再尝试获取类上面的ShardingTable注解。
+        ShardingTable shardingTableMeta = classObject.getAnnotation(ShardingTable.class);
+        if (shardingTableMeta != null) {
+            if (tablePrefixs == null || tablePrefixs.length == 0) {
+                tablePrefixs = shardingTableMeta.tablePrefix();
+            }
+            if (StringUtils.isEmpty(property)) {
+                property = shardingTableMeta.property();
+            }
+            if (strategyClass == null) {
+                strategyClass = shardingTableMeta.strategy();
+            }
+        }
+
+        if (tablePrefixs == null || tablePrefixs.length == 0) {
+            LOGGER.error("必须在方法[{}]上的@Sharding中或者类[{}]上的@ShardingTable中指定tablePrefix!", methodName, classObject);
+            throw new IllegalArgumentException("tablePrefix can't be null");
+        }
+
+        if (StringUtils.isEmpty(property)) {
+            LOGGER.error("方法[{}]上的@Sharding必须指定property!", methodName);
+            throw new IllegalArgumentException("property can't be null");
+        }
+
+        if (strategyClass == null) {
+            return new ShardingContext(tablePrefixs, property, DEFAULT_SHARDINGSTRATEGY);
+        }
+
+        return new ShardingContext(tablePrefixs, property, strategyClass.newInstance());
+
     }
 
     /**

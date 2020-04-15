@@ -4,6 +4,9 @@
 
 package com.tstd2.sharding.annotation;
 
+import com.tstd2.sharding.strategy.DefaultShardingStrategy;
+import com.tstd2.sharding.strategy.ShardingStrategy;
+
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -27,5 +30,10 @@ public @interface Sharding {
 	 * <p>注意不是数据库字段。
 	 */
 	String property();
+
+    /**
+     * 分表策略
+     */
+	Class<? extends ShardingStrategy> strategy() default DefaultShardingStrategy.class;
 	
 }
