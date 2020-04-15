@@ -1,4 +1,4 @@
-package com.tstd2.sharding.core;
+package com.tstd2.sharding.namegenerator;
 
 /**
  * Sharding数据源实例名称生成器。

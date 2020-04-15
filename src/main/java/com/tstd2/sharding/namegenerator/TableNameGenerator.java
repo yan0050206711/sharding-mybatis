@@ -1,4 +1,4 @@
-package com.tstd2.sharding.core;
+package com.tstd2.sharding.namegenerator;
 
 
 /**

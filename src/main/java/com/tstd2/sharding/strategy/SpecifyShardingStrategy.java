@@ -1,4 +1,4 @@
-package com.tstd2.sharding.core;
+package com.tstd2.sharding.strategy;
 
 /**
  * 指定表号的查询策略

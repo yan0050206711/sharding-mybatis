@@ -1,4 +1,4 @@
-package com.tstd2.sharding.core;
+package com.tstd2.sharding.strategy;
 
 /**
  * 拆分(分库分表)策略。

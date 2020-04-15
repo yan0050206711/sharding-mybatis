@@ -1,12 +1,12 @@
 package com.tstd2.sharding.mybatis;
 
 import com.tstd2.sharding.DataSourceLocalKeys;
-import com.tstd2.sharding.core.DefaultDataSourceNameGenerator;
-import com.tstd2.sharding.core.DefaultShardingStrategy;
-import com.tstd2.sharding.core.DefaultTableNameGenerator;
-import com.tstd2.sharding.core.DataSourceNameGenerator;
-import com.tstd2.sharding.core.ShardingStrategy;
-import com.tstd2.sharding.core.TableNameGenerator;
+import com.tstd2.sharding.namegenerator.DefaultDataSourceNameGenerator;
+import com.tstd2.sharding.strategy.DefaultShardingStrategy;
+import com.tstd2.sharding.namegenerator.DefaultTableNameGenerator;
+import com.tstd2.sharding.namegenerator.DataSourceNameGenerator;
+import com.tstd2.sharding.strategy.ShardingStrategy;
+import com.tstd2.sharding.namegenerator.TableNameGenerator;
 import com.tstd2.sharding.TableShardingBean;
 import com.tstd2.sharding.TableShardingHolder;
 import com.tstd2.sharding.annotation.NonSharding;

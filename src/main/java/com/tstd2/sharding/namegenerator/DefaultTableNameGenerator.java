@@ -1,4 +1,4 @@
-package com.tstd2.sharding.core;
+package com.tstd2.sharding.namegenerator;
 
 /**
  * 默认的表名称处理器实现。
