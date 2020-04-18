@@ -3,6 +3,8 @@ package com.tstd2.sharding;
 import com.tstd2.sharding.strategy.ShardingStrategy;
 
 /**
+ * 分库分表配置信息
+ *
  * @author yancey
  * @date 2020/4/16 00:13
  */

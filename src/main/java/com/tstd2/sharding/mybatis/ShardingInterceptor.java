@@ -4,11 +4,13 @@ import com.tstd2.sharding.DataSourceLocalKeys;
 import com.tstd2.sharding.ShardingContext;
 import com.tstd2.sharding.TableShardingBean;
 import com.tstd2.sharding.TableShardingHolder;
+import com.tstd2.sharding.TestSupports;
 import com.tstd2.sharding.annotation.NonSharding;
 import com.tstd2.sharding.annotation.Sharding;
 import com.tstd2.sharding.annotation.ShardingTable;
 import com.tstd2.sharding.namegenerator.DataSourceNameGenerator;
 import com.tstd2.sharding.namegenerator.DefaultDataSourceNameGenerator;
+import com.tstd2.sharding.namegenerator.DefaultShadowTableNameGenerator;
 import com.tstd2.sharding.namegenerator.DefaultTableNameGenerator;
 import com.tstd2.sharding.namegenerator.TableNameGenerator;
 import com.tstd2.sharding.strategy.DefaultShardingStrategy;
@@ -69,6 +71,16 @@ public class ShardingInterceptor implements Interceptor {
      * 分表表名处理器。
      */
     private TableNameGenerator tableNameGenerator = new DefaultTableNameGenerator();
+
+    /**
+     * 影子表表名处理器。
+     */
+    private TableNameGenerator shadowTableNameGenerator = new DefaultShadowTableNameGenerator(tableNameGenerator);
+
+    /**
+     * 表示是否可测试。
+     */
+    private boolean isTestable = false;
 
     /**
      * 数据源名称生成器。
@@ -134,7 +146,14 @@ public class ShardingInterceptor implements Interceptor {
                     LOGGER.debug("根据分库分表值[{}]算出来的库表号信息为:[{}]", shardingValue, pair);
 
                     //2.1生成实际物理表名。
-                    String realTableName = tableNameGenerator.generate(tablePrefixs[i], pair.getTableNo(), shardingTableCount);
+                    //判断影子表逻辑。
+                    String realTableName = null;
+                    //如果测试开关打开，且设置了影子表本地变量，才会生成影子表名。
+                    if (isTestable && TestSupports.isShadowTableChoosed()) {
+                        realTableName = shadowTableNameGenerator.generate(tablePrefixs[i], pair.getTableNo(), shardingTableCount);
+                    } else {
+                        realTableName = tableNameGenerator.generate(tablePrefixs[i], pair.getTableNo(), shardingTableCount);
+                    }
                     //2.2将表前缀和实际物理表名存到线程上下文。
                     realTableMap.put(tablePrefixs[i], realTableName);
 
