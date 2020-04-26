@@ -81,7 +81,7 @@ public class ShardingContextBuilder {
             throw new IllegalArgumentException(msg);
         }
 
-        if (strategyClass == null) {
+        if (strategyClass == null || DefaultShardingStrategy.class.equals(strategyClass)) {
             return new ShardingContext(tablePrefixs, property, DEFAULT_SHARDING_STRATEGY);
         }
 
