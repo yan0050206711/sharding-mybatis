@@ -18,7 +18,7 @@
         <org.spring.jdbc.version>4.3.13.RELEASE</org.spring.jdbc.version>
         <org.slf4j.version>1.7.5</org.slf4j.version>
         <org.log4j.version>1.2.17</org.log4j.version>
-        <junit.version>4.5</junit.version>
+        <junit.version>4.13.1</junit.version>
     </properties>
 
     <dependencies>
